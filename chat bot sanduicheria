@@ -1,0 +1,435 @@
+#!/usr/bin/env python3
+# chat_sanduicheira_full.py
+import re
+import sys
+
+class State:
+    SAUDACAO = "SAUDACAO"
+    TIPO_PEDIDO = "TIPO_PEDIDO"
+    MENU_PRINCIPAL = "MENU_PRINCIPAL"
+    ESCOLHER_MENU = "ESCOLHER_MENU"
+    ESCOLHER_ITEM = "ESCOLHER_ITEM"
+    QUANTIDADE = "QUANTIDADE"
+    ADICIONAR_MAIS = "ADICIONAR_MAIS"
+    RESUMO = "RESUMO"
+    ALTERAR_PEDIDO = "ALTERAR_PEDIDO"
+    ALTERAR_SELECAO = "ALTERAR_SELECAO"
+    ENDERECO = "ENDERECO"
+    PAGAMENTO = "PAGAMENTO"
+    CARTAO = "CARTAO"
+    FINALIZAR = "FINALIZAR"
+
+class SanduicheiraAssistant:
+    def __init__(self):
+        self.current_state = State.SAUDACAO
+        # Cardápio separado por categorias
+        self.cardapio = {
+            "comidas": {
+                1: ("Misto Quente", 8.00),
+                2: ("X-Burger", 12.00),
+                3: ("X-Salada", 15.00),
+                4: ("X-Bacon", 18.00),
+                5: ("X-Tudo", 22.00),
+                6: ("Hambúrguer Artesanal", 28.00),
+                7: ("Cachorro-Quente", 10.00),
+                8: ("Pizza Brotinho", 15.00),
+            },
+            "bebidas": {
+                1: ("Refrigerante Lata", 6.00),
+                2: ("Suco Natural", 8.00),
+                3: ("Água Mineral", 4.00),
+                4: ("Milk-shake", 12.00),
+                5: ("Cerveja Latinha", 7.00),
+            },
+            "sobremesas": {
+                1: ("Pudim", 7.00),
+                2: ("Açaí", 10.00),
+                3: ("Brownie", 9.00),
+                4: ("Sorvete", 6.00),
+                5: ("Cheesecake", 12.00),
+            }
+        }
+        self._reset_session()
+
+    # ---------------- util ----------------
+    def normalize(self, s: str) -> str:
+        if not s:
+            return ""
+        s = s.lower()
+        replacements = {"á":"a","ã":"a","â":"a","à":"a","é":"e","ê":"e","í":"i","ó":"o","õ":"o","ô":"o","ú":"u","ç":"c"}
+        for k,v in replacements.items():
+            s = s.replace(k,v)
+        s = re.sub(r"[^\w\s]", " ", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s
+
+    def read_int(self, user_input: str):
+        try:
+            return int(user_input.strip())
+        except:
+            return None
+
+    def mostrar_menu_categoria(self, categoria: str):
+        menu = self.cardapio[categoria]
+        out = [f"--- {categoria.capitalize()} ---"]
+        for cod, (nome, preco) in menu.items():
+            out.append(f"{cod}) {nome} - R$ {preco:.2f}")
+        out.append("0) Voltar ao menu principal")
+        out.append("Escolha o número do item:")
+        return "\n".join(out)
+
+    def mostrar_menu_principal(self):
+        return (
+            "Escolha a categoria:\n"
+            "1) Comidas\n"
+            "2) Bebidas\n"
+            "3) Sobremesas\n"
+            "4) Ver resumo do pedido\n"
+            "0) Finalizar / Ir para resumo\n"
+            "Digite o número da opção:"
+        )
+
+    def resumo_pedido_texto(self):
+        if not self.pedido:
+            return "Seu pedido está vazio."
+        lines = ["Resumo do pedido:"]
+        total = 0.0
+        for idx, it in enumerate(self.pedido, start=1):
+            subtotal = it["preco"] * it["quantidade"]
+            total += subtotal
+            lines.append(f"{idx}) {it['nome']} - Qtd: {it['quantidade']} - R$ {it['preco']:.2f} - Subtotal: R$ {subtotal:.2f}")
+        lines.append(f"\nTotal geral: R$ {total:.2f}")
+        return "\n".join(lines)
+
+    def calcular_total(self):
+        return sum(it["preco"] * it["quantidade"] for it in self.pedido)
+
+    # ---------------- handlers ----------------
+    def handle_saudacao(self, _):
+        self.current_state = State.TIPO_PEDIDO
+        return (
+            "Bem-vindo à Sanduicheira! 🥪\n"
+            "Como deseja consumir?\n"
+            "1) Comer no restaurante\n"
+            "2) Entrega em domicílio\n"
+            "Digite o número da opção:"
+        )
+
+    def handle_tipo_pedido(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            self.tipo = "local"
+            self.current_state = State.MENU_PRINCIPAL
+            return "Você escolheu: Comer no restaurante.\n\n" + self.mostrar_menu_principal()
+        elif op == 2:
+            self.tipo = "entrega"
+            self.current_state = State.MENU_PRINCIPAL
+            return "Você escolheu: Entrega em domicílio.\n\n" + self.mostrar_menu_principal()
+        else:
+            return "Opção inválida. Digite 1 para local ou 2 para entrega."
+
+    def handle_menu_principal(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            self.current_category = "comidas"
+            self.current_state = State.ESCOLHER_MENU
+            return self.mostrar_menu_categoria("comidas")
+        elif op == 2:
+            self.current_category = "bebidas"
+            self.current_state = State.ESCOLHER_MENU
+            return self.mostrar_menu_categoria("bebidas")
+        elif op == 3:
+            self.current_category = "sobremesas"
+            self.current_state = State.ESCOLHER_MENU
+            return self.mostrar_menu_categoria("sobremesas")
+        elif op == 4:
+            self.current_state = State.RESUMO
+            return self.resumo_pedido_texto() + "\n\n1) Ir para opções de alteração / 2) Ir para pagamento"
+        elif op == 0:
+            self.current_state = State.RESUMO
+            return self.resumo_pedido_texto() + "\n\n1) Ir para opções de alteração / 2) Ir para pagamento"
+        else:
+            return "Opção inválida. Digite um número do menu."
+
+    def handle_escolher_menu(self, user_input):
+        op = self.read_int(user_input)
+        if op is None:
+            return "Digite apenas o número do item (ou 0 para voltar)."
+        if op == 0:
+            self.current_state = State.MENU_PRINCIPAL
+            return self.mostrar_menu_principal()
+        menu = self.cardapio[self.current_category]
+        if op in menu:
+            nome, preco = menu[op]
+            self.item_em_selecao = {"nome": nome, "preco": preco, "categoria": self.current_category}
+            self.current_state = State.QUANTIDADE
+            return f"Quantos '{nome}' você deseja? (Digite o número da quantidade)"
+        else:
+            return "Opção inválida nessa categoria. Escolha um número existente ou 0 para voltar."
+
+    def handle_quantidade(self, user_input):
+        qtd = self.read_int(user_input)
+        if qtd is None or qtd <= 0:
+            return "Quantidade inválida. Digite apenas um número inteiro maior que zero."
+        # adiciona item ao pedido (empilha para permitir múltiplos mesmos itens separadamente)
+        entry = {
+            "nome": self.item_em_selecao["nome"],
+            "preco": self.item_em_selecao["preco"],
+            "categoria": self.item_em_selecao["categoria"],
+            "quantidade": qtd
+        }
+        self.pedido.append(entry)
+        self.current_state = State.ADICIONAR_MAIS
+        return (
+            f"Item '{entry['nome']}' x{qtd} adicionado ao pedido.\n\n"
+            "Deseja adicionar mais itens?\n"
+            "1) Sim - voltar ao menu principal\n"
+            "2) Não - ver resumo/ir para pagamento\n"
+            "Digite a opção:"
+        )
+
+    def handle_adicionar_mais(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            self.current_state = State.MENU_PRINCIPAL
+            return self.mostrar_menu_principal()
+        elif op == 2:
+            self.current_state = State.RESUMO
+            return self.resumo_pedido_texto() + "\n\n1) Alterar pedido\n2) Prosseguir para pagamento"
+        else:
+            return "Opção inválida. Digite 1 para Sim ou 2 para Não."
+
+    def handle_resumo(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            # abrir menu de alteração
+            if not self.pedido:
+                self.current_state = State.MENU_PRINCIPAL
+                return "Pedido vazio. Voltando ao menu principal.\n\n" + self.mostrar_menu_principal()
+            self.current_state = State.ALTERAR_PEDIDO
+            return (
+                "Opções de alteração:\n"
+                "1) Remover um item\n"
+                "2) Alterar quantidade de um item\n"
+                "3) Adicionar mais itens\n"
+                "4) Limpar pedido (apagar tudo)\n"
+                "0) Voltar ao resumo\n"
+                "Digite a opção:"
+            )
+        elif op == 2:
+            # se for entrega, pedir endereço antes de pagamento
+            if self.tipo == "entrega":
+                self.current_state = State.ENDERECO
+                return "Digite o endereço completo para entrega (rua, número, complemento, bairro, cidade):"
+            else:
+                self.current_state = State.PAGAMENTO
+                return self.mostrar_metodos_pagamento()
+        else:
+            return "Opção inválida no resumo. Digite 1 ou 2."
+
+    def handle_alterar_pedido(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            # remover item
+            self.current_state = State.ALTERAR_SELECAO
+            self.alteracao_tipo = "remover"
+            return self._listar_itens_para_alteracao("Escolha o número do item que deseja remover (ou 0 para cancelar):")
+        elif op == 2:
+            self.current_state = State.ALTERAR_SELECAO
+            self.alteracao_tipo = "alterar_qtd"
+            return self._listar_itens_para_alteracao("Escolha o número do item que deseja alterar a quantidade (ou 0 para cancelar):")
+        elif op == 3:
+            self.current_state = State.MENU_PRINCIPAL
+            return "Voltando ao menu principal para adicionar mais itens.\n\n" + self.mostrar_menu_principal()
+        elif op == 4:
+            self.pedido = []
+            self.current_state = State.MENU_PRINCIPAL
+            return "Pedido limpo. Voltando ao menu principal.\n\n" + self.mostrar_menu_principal()
+        elif op == 0:
+            self.current_state = State.RESUMO
+            return self.resumo_pedido_texto() + "\n\n1) Alterar pedido\n2) Prosseguir para pagamento"
+        else:
+            return "Opção inválida. Escolha uma das opções do menu de alteração."
+
+    def _listar_itens_para_alteracao(self, prompt):
+        if not self.pedido:
+            self.current_state = State.MENU_PRINCIPAL
+            return "Pedido vazio. Voltando ao menu principal.\n\n" + self.mostrar_menu_principal()
+        lines = ["Itens do pedido:"]
+        for idx, it in enumerate(self.pedido, start=1):
+            lines.append(f"{idx}) {it['nome']} - Qtd: {it['quantidade']} - R$ {it['preco']:.2f}")
+        lines.append("0) Cancelar e voltar")
+        lines.append(prompt)
+        return "\n".join(lines)
+
+    def handle_alterar_selecao(self, user_input):
+        sel = self.read_int(user_input)
+        if sel is None:
+            return "Digite apenas o número do item (ou 0 para cancelar)."
+        if sel == 0:
+            self.current_state = State.ALTERAR_PEDIDO
+            return (
+                "Voltando ao menu de alteração:\n"
+                "1) Remover um item\n"
+                "2) Alterar quantidade de um item\n"
+                "3) Adicionar mais itens\n"
+                "4) Limpar pedido\n"
+                "0) Voltar ao resumo\n"
+            )
+        if sel < 1 or sel > len(self.pedido):
+            return "Número de item inválido. Tente novamente."
+        # tem seleção válida
+        if self.alteracao_tipo == "remover":
+            removed = self.pedido.pop(sel - 1)
+            self.current_state = State.RESUMO
+            return f"Item '{removed['nome']}' removido.\n\n" + self.resumo_pedido_texto() + "\n\n1) Alterar pedido\n2) Prosseguir para pagamento"
+        elif self.alteracao_tipo == "alterar_qtd":
+            self.selecao_para_alterar = sel - 1
+            self.current_state = State.ALTERAR_SELECAO  # manter no mesmo estado até receber quantidade
+            self.alteracao_tipo = "confirmar_qtd"
+            return "Digite a nova quantidade para o item selecionado:"
+        elif self.alteracao_tipo == "confirmar_qtd":
+            # shouldn't happen here
+            return "Erro de estado. Voltando ao resumo." 
+
+    def handle_alterar_confirmar_qtd(self, user_input):
+        # espera a nova quantidade para o item previamente escolhido
+        qtd = self.read_int(user_input)
+        if qtd is None or qtd <= 0:
+            return "Quantidade inválida. Digite um número inteiro maior que zero."
+        idx = getattr(self, "selecao_para_alterar", None)
+        if idx is None or idx < 0 or idx >= len(self.pedido):
+            self.current_state = State.RESUMO
+            return "Erro: seleção inválida. Voltando ao resumo.\n\n" + self.resumo_pedido_texto()
+        self.pedido[idx]["quantidade"] = qtd
+        nome = self.pedido[idx]["nome"]
+        self.current_state = State.RESUMO
+        return f"Quantidade do item '{nome}' atualizada para {qtd}.\n\n" + self.resumo_pedido_texto() + "\n\n1) Alterar pedido\n2) Prosseguir para pagamento"
+
+    def handle_endereco(self, user_input):
+        text = user_input.strip()
+        if len(text) < 5:
+            return "Endereço muito curto. Por favor digite o endereço completo (rua, número, bairro, cidade)."
+        self.endereco = text
+        self.current_state = State.PAGAMENTO
+        return "Endereço registrado!\n\n" + self.mostrar_metodos_pagamento()
+
+    def mostrar_metodos_pagamento(self):
+        return (
+            "Escolha o método de pagamento:\n"
+            "1) PIX\n"
+            "2) Dinheiro\n"
+            "3) Cartão\n"
+            "Digite o número da opção:"
+        )
+
+    def handle_pagamento(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            self.metodo_pagamento = "PIX"
+            return self.finalizar_pedido()
+        elif op == 2:
+            self.metodo_pagamento = "Dinheiro"
+            return self.finalizar_pedido()
+        elif op == 3:
+            self.current_state = State.CARTAO
+            return "Cartão selecionado. Escolha:\n1) Crédito\n2) Débito\nDigite o número:"
+        else:
+            return "Opção inválida de pagamento. Digite 1, 2 ou 3."
+
+    def handle_cartao(self, user_input):
+        op = self.read_int(user_input)
+        if op == 1:
+            self.metodo_pagamento = "Cartão de Crédito"
+            return self.finalizar_pedido()
+        elif op == 2:
+            self.metodo_pagamento = "Cartão de Débito"
+            return self.finalizar_pedido()
+        else:
+            return "Opção inválida. Digite 1 para Crédito ou 2 para Débito."
+
+    def finalizar_pedido(self):
+        total = self.calcular_total()
+        lines = [self.resumo_pedido_texto(),
+                 f"\nPagamento: {self.metodo_pagamento}",
+                 f"Total a pagar: R$ {total:.2f}"]
+        if self.tipo == "entrega":
+            lines.append(f"Endereço de entrega: {self.endereco}")
+        lines.append("\nPedido finalizado! ✅\nObrigado por comprar na Sanduicheira! 🥪")
+        mensagem = "\n".join(lines)
+        self._reset_session()
+        self.current_state = State.SAUDACAO
+        return mensagem
+
+    # ---------------- dispatch/responder ----------------
+    def respond(self, user_input: str):
+        raw = user_input or ""
+        # Encadeamento de estados que precisam de distinção especial
+        if self.current_state == State.SAUDACAO:
+            return self.handle_saudacao(raw)
+        if self.current_state == State.TIPO_PEDIDO:
+            return self.handle_tipo_pedido(raw)
+        if self.current_state == State.MENU_PRINCIPAL:
+            return self.handle_menu_principal(raw)
+        if self.current_state == State.ESCOLHER_MENU:
+            return self.handle_escolher_menu(raw)
+        if self.current_state == State.QUANTIDADE:
+            return self.handle_quantidade(raw)
+        if self.current_state == State.ADICIONAR_MAIS:
+            return self.handle_adicionar_mais(raw)
+        if self.current_state == State.RESUMO:
+            return self.handle_resumo(raw)
+        if self.current_state == State.ALTERAR_PEDIDO:
+            return self.handle_alterar_pedido(raw)
+        if self.current_state == State.ALTERAR_SELECAO:
+            # two-step: either selecting which item or confirming new qty
+            if getattr(self, "alteracao_tipo", "") == "confirmar_qtd":
+                # received new quantity
+                return self.handle_alterar_confirmar_qtd(raw)
+            else:
+                return self.handle_alterar_selecao(raw)
+        if self.current_state == State.ENDERECO:
+            return self.handle_endereco(raw)
+        if self.current_state == State.PAGAMENTO:
+            return self.handle_pagamento(raw)
+        if self.current_state == State.CARTAO:
+            return self.handle_cartao(raw)
+
+        # fallback
+        self.current_state = State.SAUDACAO
+        return "Desculpe, não entendi. Reiniciando atendimento."
+
+    def _reset_session(self):
+        self.tipo = None  # "local" ou "entrega"
+        self.pedido = []  # lista de dicts: nome, preco, categoria, quantidade
+        self.item_em_selecao = None
+        self.current_category = None
+        self.endereco = None
+        self.metodo_pagamento = None
+        self.alteracao_tipo = None
+        self.selecao_para_alterar = None
+
+    def run(self):
+        print("Bem-vindo à Sanduicheira! (digite 'sair' para encerrar a qualquer momento)\n")
+        print(self.respond(""))
+        while True:
+            try:
+                user_input = input("\nVocê: ")
+            except (KeyboardInterrupt, EOFError):
+                print("\nBot: Encerrando... Até logo!")
+                sys.exit(0)
+
+            if user_input is None:
+                user_input = ""
+
+            low = self.normalize(user_input)
+            if low in ("sair", "encerrar", "fim", "exit"):
+                print("Bot: Obrigado! Volte sempre!")
+                break
+
+            reply = self.respond(user_input)
+            print("\nBot:", reply)
+
+if __name__ == "__main__":
+    SanduicheiraAssistant().run()
+
